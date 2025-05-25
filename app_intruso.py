@@ -7,10 +7,8 @@ import pickle
 # Cargar modelo entrenado (supón que guardaste el modelo XGBoost con pickle)
 # modelo = pickle.load(open('modelo_xgb.pkl', 'rb'))
 # Para demo, creamos uno falso (simulación)
-class DummyModel:
-    def predict_proba(self, X):
-        return np.array([[1 - 0.85, 0.85] for _ in range(len(X))])
-modelo = DummyModel()
+with open("modelo_xgb.pkl", "rb") as f:
+    modelo = pickle.load(f
 
 st.set_page_config(page_title="Detección de Intrusos", layout="centered")
 st.title("🔐 Clasificación de Conexiones Fraudulentas")
