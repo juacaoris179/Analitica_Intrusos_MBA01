@@ -8,7 +8,7 @@ import pickle
 # modelo = pickle.load(open('modelo_xgb.pkl', 'rb'))
 # Para demo, creamos uno falso (simulación)
 with open("modelo_xgb.pkl", "rb") as f:
-    modelo = pickle.load(f
+    modelo = pickle.load(f)
 
 st.set_page_config(page_title="Detección de Intrusos", layout="centered")
 st.title("🔐 Clasificación de Conexiones Fraudulentas")
