@@ -1,6 +1,5 @@
-pandas
-numpy
-xgboost
-scikit-learn
-imbalanced-learn
 streamlit
+pandas
+scikit-learn
+joblib
+imblearn
