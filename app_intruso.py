@@ -3,12 +3,10 @@ import pandas as pd
 import numpy as np
 import joblib
 
-# === CONFIGURACIÓN GENERAL ===
 st.set_page_config(page_title="Detección de Intrusos", layout="centered")
 st.title("🔐 Clasificación de Conexiones Fraudulentas")
 st.write("Evalúa si una conexión bancaria fue realizada por un intruso en base a sus características.")
 
-# === FUNCIÓN DE SCORING OPERATIVO ===
 def score_riesgo_conexion(flag_ip_extranjera, minutos_conexion, n_conexion_u3m):
     score = 0
     if flag_ip_extranjera == 1:
@@ -26,14 +24,12 @@ def score_riesgo_conexion(flag_ip_extranjera, minutos_conexion, n_conexion_u3m):
     else:
         return score, "BAJO"
 
-# === CARGAR MODELO YA ENTRENADO ===
 @st.cache_resource
 def cargar_modelo():
     return joblib.load("modelo_rf.pkl")
 
 modelo = cargar_modelo()
 
-# === ENTRADA MANUAL (SIDEBAR) ===
 st.sidebar.header("Entrada manual")
 ip_extranjera = st.sidebar.selectbox("¿La IP es extranjera?", [0, 1])
 minutos = st.sidebar.slider("Minutos de conexión", 0.0, 60.0, 5.0)
@@ -53,7 +49,6 @@ if st.sidebar.button("Evaluar manualmente"):
     st.subheader("📊 Score de Riesgo Operativo")
     st.write(f"Score: **{score}** → Nivel: **{nivel}**")
 
-# === SUBIR CSV ===
 st.subheader("📂 Subir archivo CSV")
 archivo = st.file_uploader("Sube tu archivo de datos", type=["csv"])
 
@@ -67,7 +62,6 @@ if archivo is not None:
         df['Probabilidad_Intruso'] = modelo.predict_proba(df_input)[:, 1]
         df['Intruso_Predicho'] = modelo.predict(df_input)
 
-        # Scoring por fila
         scores, niveles = [], []
         for _, fila in df_input.iterrows():
             s, n = score_riesgo_conexion(fila['FLAG_IP_EXTRANJERA'],
@@ -85,4 +79,4 @@ if archivo is not None:
     else:
         st.error(f"❌ El archivo debe contener las columnas: {columnas_esperadas}")
 
-st.caption("Desarrollado por JC | Modelo Random Forest entrenado previamente con validación estadística")
+st.caption("Desarrollado por JC | Modelo Random Forest entrenado previamente")
