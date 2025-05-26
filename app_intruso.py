@@ -1,38 +1,39 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from xgboost import XGBClassifier
-from imblearn.over_sampling import SMOTE
-from sklearn.model_selection import train_test_split
+import joblib
 
+# === CONFIGURACIÓN GENERAL ===
 st.set_page_config(page_title="Detección de Intrusos", layout="centered")
 st.title("🔐 Clasificación de Conexiones Fraudulentas")
-st.write("Sube un archivo CSV con conexiones o completa los campos manualmente para evaluar la probabilidad de que una conexión sea fraudulenta (realizada por un intruso).")
+st.write("Evalúa si una conexión bancaria fue realizada por un intruso en base a sus características.")
 
-# === Cargar y entrenar modelo desde CSV ===
+# === FUNCIÓN DE SCORING OPERATIVO ===
+def score_riesgo_conexion(flag_ip_extranjera, minutos_conexion, n_conexion_u3m):
+    score = 0
+    if flag_ip_extranjera == 1:
+        score += 50
+    if minutos_conexion <= 12 and n_conexion_u3m <= 10:
+        score += 30
+    if n_conexion_u3m <= 3:
+        score += 20
+    if n_conexion_u3m >= 50:
+        score -= 20
+    if score >= 70:
+        return score, "CRÍTICO"
+    elif score >= 40:
+        return score, "MODERADO"
+    else:
+        return score, "BAJO"
+
+# === CARGAR MODELO YA ENTRENADO ===
 @st.cache_resource
-def entrenar_modelo():
-    df = pd.read_csv("Tabla_Intruso_Detectado.csv", sep=';')  # <- Aseguramos delimitador correcto
-    st.write("Columnas detectadas:", df.columns.tolist())  # Mostrar columnas para debug
-    columnas_renombradas = {
-        'FLAG_INTRUSO_DETECTADO': 'FLAG_INTRUSO_DETECTADO',
-        'FLAG_IP_EXTRANJERA': 'FLAG_IP_EXTRANJERA',
-        'MINUTOS_CONEXION': 'MINUTOS_CONEXION',
-        'N_CONEXION_U3M': 'N_CONEXION_U3M'
-    }
-    df = df.rename(columns=columnas_renombradas)
-    X = df[['FLAG_IP_EXTRANJERA', 'MINUTOS_CONEXION', 'N_CONEXION_U3M']]
-    y = df['FLAG_INTRUSO_DETECTADO']
-    smote = SMOTE(random_state=42)
-    X_sm, y_sm = smote.fit_resample(X, y)
-    X_train, _, y_train, _ = train_test_split(X_sm, y_sm, test_size=0.2, stratify=y_sm, random_state=42)
-    modelo = XGBClassifier(use_label_encoder=False, eval_metric='logloss', max_depth=4, learning_rate=0.1, random_state=42)
-    modelo.fit(X_train, y_train)
-    return modelo
+def cargar_modelo():
+    return joblib.load("modelo_rf.pkl")
 
-modelo = entrenar_modelo()
+modelo = cargar_modelo()
 
-# === Entrada manual ===
+# === ENTRADA MANUAL (SIDEBAR) ===
 st.sidebar.header("Entrada manual")
 ip_extranjera = st.sidebar.selectbox("¿La IP es extranjera?", [0, 1])
 minutos = st.sidebar.slider("Minutos de conexión", 0.0, 60.0, 5.0)
@@ -41,27 +42,47 @@ conexiones = st.sidebar.slider("N° de conexiones en últimos 3 meses", 0, 100, 
 if st.sidebar.button("Evaluar manualmente"):
     datos = pd.DataFrame([[ip_extranjera, minutos, conexiones]],
                          columns=['FLAG_IP_EXTRANJERA', 'MINUTOS_CONEXION', 'N_CONEXION_U3M'])
-    proba = float(modelo.predict_proba(datos)[0][1])  # Convertimos a float
-    st.metric(label="Probabilidad de intrusión", value=f"{proba:.2%}")
+    proba = float(modelo.predict_proba(datos)[0][1])
+    pred = int(modelo.predict(datos)[0])
+    score, nivel = score_riesgo_conexion(ip_extranjera, minutos, conexiones)
+
+    st.subheader("🧠 Predicción del Modelo")
+    st.write(f"¿Intruso?: {'Sí' if pred == 1 else 'No'} (probabilidad: {proba:.2%})")
     st.progress(min(proba, 1.0))
 
-# === Carga de archivo ===
+    st.subheader("📊 Score de Riesgo Operativo")
+    st.write(f"Score: **{score}** → Nivel: **{nivel}**")
+
+# === SUBIR CSV ===
 st.subheader("📂 Subir archivo CSV")
 archivo = st.file_uploader("Sube tu archivo de datos", type=["csv"])
 
 if archivo is not None:
     df = pd.read_csv(archivo, sep=';')
-    df = df.rename(columns=lambda x: x.strip().upper())
-    columnas_esperadas = {'FLAG_IP_EXTRANJERA', 'MINUTOS_CONEXION', 'N_CONEXION_U3M'}
-    st.write("Columnas cargadas:", df.columns.tolist())
+    df.columns = df.columns.str.strip().str.upper()
+    columnas_esperadas = ['FLAG_IP_EXTRANJERA', 'MINUTOS_CONEXION', 'N_CONEXION_U3M']
 
-    if columnas_esperadas.issubset(df.columns):
-        proba = modelo.predict_proba(df[list(columnas_esperadas)])[:, 1]
-        df['Probabilidad_Intruso'] = proba
-        st.success("Predicciones generadas exitosamente")
-        st.dataframe(df[['FLAG_IP_EXTRANJERA', 'MINUTOS_CONEXION', 'N_CONEXION_U3M', 'Probabilidad_Intruso']])
+    if set(columnas_esperadas).issubset(df.columns):
+        df_input = df[columnas_esperadas]
+        df['Probabilidad_Intruso'] = modelo.predict_proba(df_input)[:, 1]
+        df['Intruso_Predicho'] = modelo.predict(df_input)
+
+        # Scoring por fila
+        scores, niveles = [], []
+        for _, fila in df_input.iterrows():
+            s, n = score_riesgo_conexion(fila['FLAG_IP_EXTRANJERA'],
+                                         fila['MINUTOS_CONEXION'],
+                                         fila['N_CONEXION_U3M'])
+            scores.append(s)
+            niveles.append(n)
+        df['Score_Riesgo'] = scores
+        df['Nivel_Riesgo'] = niveles
+
+        st.success("✅ Predicciones generadas exitosamente")
+        st.dataframe(df[columnas_esperadas + ['Probabilidad_Intruso', 'Intruso_Predicho', 'Nivel_Riesgo']])
         st.bar_chart(df['Probabilidad_Intruso'])
-    else:
-        st.error("El archivo no contiene las columnas necesarias. Se requieren: FLAG_IP_EXTRANJERA, MINUTOS_CONEXION, N_CONEXION_U3M")
 
-st.caption("Desarrollado por JC | Modelo XGBoost entrenado dinámicamente desde CSV")
+    else:
+        st.error(f"❌ El archivo debe contener las columnas: {columnas_esperadas}")
+
+st.caption("Desarrollado por JC | Modelo Random Forest entrenado previamente con validación estadística")
