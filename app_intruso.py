@@ -9,14 +9,26 @@ st.write("Evalúa si una conexión bancaria fue realizada por un intruso en base
 
 def score_riesgo_conexion(flag_ip_extranjera, minutos_conexion, n_conexion_u3m):
     score = 0
+
+    # Penalización por IP extranjera
     if flag_ip_extranjera == 1:
-        score += 50
-    if minutos_conexion <= 12 and n_conexion_u3m <= 10:
+        score += 40
+
+    # Penalización según duración de conexión
+    if minutos_conexion <= 10:
         score += 30
-    if n_conexion_u3m <= 3:
-        score += 20
-    if n_conexion_u3m >= 50:
-        score -= 20
+    elif minutos_conexion <= 15:
+        score += 15
+
+    # Penalización por poca actividad reciente
+    if n_conexion_u3m == 0:
+        score += 10
+    elif n_conexion_u3m <= 3:
+        score += 10
+    elif n_conexion_u3m >= 50:
+        score -= 20  # Usuario muy activo: indicio de titularidad
+
+    # Clasificación final
     if score >= 70:
         return score, "CRÍTICO"
     elif score >= 40:
