@@ -5,36 +5,45 @@ import joblib
 
 st.set_page_config(page_title="Detección de Intrusos", layout="centered")
 st.title("🔐 Clasificación de Conexiones Fraudulentas")
-st.write("Evalúa si una conexión bancaria fue realizada por un intruso en base a sus características.")
+st.markdown("Evalúa si una conexión bancaria fue realizada por un intruso en base a sus características.")
+st.markdown("---")
 
 def score_riesgo_conexion(flag_ip_extranjera, minutos_conexion, n_conexion_u3m):
     score = 0
+    razones = []
 
-    # Penalización por IP extranjera
     if flag_ip_extranjera == 1:
         score += 40
+        razones.append("IP extranjera")
 
-    # Penalización según duración de conexión
     if minutos_conexion <= 10:
         score += 30
+        razones.append("Conexión corta (<=10min)")
     elif minutos_conexion <= 15:
         score += 15
+        razones.append("Conexión moderadamente corta")
 
-    # Penalización por poca actividad reciente
     if n_conexion_u3m == 0:
         score += 10
+        razones.append("Sin actividad previa")
     elif n_conexion_u3m <= 3:
         score += 10
+        razones.append("Actividad baja")
     elif n_conexion_u3m >= 50:
-        score -= 20  # Usuario muy activo: indicio de titularidad
+        score -= 20
+        razones.append("Alta actividad")
 
-    # Clasificación final
     if score >= 70:
-        return score, "CRÍTICO"
+        nivel = "CRÍTICO"
+        color = "🔴"
     elif score >= 40:
-        return score, "MODERADO"
+        nivel = "MODERADO"
+        color = "🟠"
     else:
-        return score, "BAJO"
+        nivel = "BAJO"
+        color = "🟢"
+
+    return score, nivel, color, razones
 
 @st.cache_resource
 def cargar_modelo():
@@ -42,53 +51,65 @@ def cargar_modelo():
 
 modelo = cargar_modelo()
 
-st.sidebar.header("Entrada manual")
+# Entrada manual
+st.sidebar.header("🧾 Entrada manual")
 ip_extranjera = st.sidebar.selectbox("¿La IP es extranjera?", [0, 1])
 minutos = st.sidebar.slider("Minutos de conexión", 0.0, 60.0, 5.0)
 conexiones = st.sidebar.slider("N° de conexiones en últimos 3 meses", 0, 100, 3)
 
 if st.sidebar.button("Evaluar manualmente"):
-    datos = pd.DataFrame([[ip_extranjera, minutos, conexiones]],
-                         columns=['FLAG_IP_EXTRANJERA', 'MINUTOS_CONEXION', 'N_CONEXION_U3M'])
+    minutos_por_conexion = minutos / (conexiones + 1)
+    datos = pd.DataFrame([[ip_extranjera, minutos, conexiones, minutos_por_conexion]],
+                         columns=['FLAG_IP_EXTRANJERA', 'MINUTOS_CONEXION', 'N_CONEXION_U3M', 'MINUTOS_POR_CONEXION'])
     proba = float(modelo.predict_proba(datos)[0][1])
     pred = int(modelo.predict(datos)[0])
-    score, nivel = score_riesgo_conexion(ip_extranjera, minutos, conexiones)
+    score, nivel, color, razones = score_riesgo_conexion(ip_extranjera, minutos, conexiones)
 
     st.subheader("🧠 Predicción del Modelo")
-    st.write(f"¿Intruso?: {'Sí' if pred == 1 else 'No'} (probabilidad: {proba:.2%})")
+    st.markdown("### ✅ Resultado del Modelo")
+    st.markdown(f"**¿Intruso?**: {'🛑 Sí' if pred == 1 else '✅ No'}")
+    st.markdown(f"**Probabilidad de intrusión:** `{proba:.2%}`")
     st.progress(min(proba, 1.0))
+    st.markdown("---")
 
     st.subheader("📊 Score de Riesgo Operativo")
-    st.write(f"Score: **{score}** → Nivel: **{nivel}**")
+    st.markdown(f"**Score:** `{score}` → **Nivel:** {color} **{nivel}**")
+    st.markdown("🧾 **Razones:** " + ", ".join(razones))
+    st.markdown("---")
 
 st.subheader("📂 Subir archivo CSV")
 archivo = st.file_uploader("Sube tu archivo de datos", type=["csv"])
 
 if archivo is not None:
     df = pd.read_csv(archivo, sep=';')
-    df.columns = df.columns.str.strip().str.upper()
+    df.columns = df.columns.str.strip().str.upper().str.replace(" ", "_")
     columnas_esperadas = ['FLAG_IP_EXTRANJERA', 'MINUTOS_CONEXION', 'N_CONEXION_U3M']
 
     if set(columnas_esperadas).issubset(df.columns):
-        df_input = df[columnas_esperadas]
+        df["MINUTOS_POR_CONEXION"] = df["MINUTOS_CONEXION"] / (df["N_CONEXION_U3M"] + 1)
+        df_input = df[columnas_esperadas + ['MINUTOS_POR_CONEXION']]
+
         df['Probabilidad_Intruso'] = modelo.predict_proba(df_input)[:, 1]
         df['Intruso_Predicho'] = modelo.predict(df_input)
 
-        scores, niveles = [], []
-        for _, fila in df_input.iterrows():
-            s, n = score_riesgo_conexion(fila['FLAG_IP_EXTRANJERA'],
-                                         fila['MINUTOS_CONEXION'],
-                                         fila['N_CONEXION_U3M'])
+        scores, niveles, razones_list = [], [], []
+        for _, fila in df.iterrows():
+            s, n, c, r = score_riesgo_conexion(fila['FLAG_IP_EXTRANJERA'],
+                                               fila['MINUTOS_CONEXION'],
+                                               fila['N_CONEXION_U3M'])
             scores.append(s)
-            niveles.append(n)
+            niveles.append(f"{c} {n}")
+            razones_list.append(", ".join(r))
+
         df['Score_Riesgo'] = scores
         df['Nivel_Riesgo'] = niveles
+        df['Razones_Riesgo'] = razones_list
 
         st.success("✅ Predicciones generadas exitosamente")
-        st.dataframe(df[columnas_esperadas + ['Probabilidad_Intruso', 'Intruso_Predicho', 'Nivel_Riesgo']])
+        st.dataframe(df[columnas_esperadas + ['Probabilidad_Intruso', 'Intruso_Predicho', 'Nivel_Riesgo', 'Razones_Riesgo']])
         st.bar_chart(df['Probabilidad_Intruso'])
-
     else:
         st.error(f"❌ El archivo debe contener las columnas: {columnas_esperadas}")
 
-st.caption("Desarrollado por JC | Modelo Random Forest entrenado previamente")
+st.caption("Desarrollado por JC | Modelo Random Forest refinado con variable MINUTOS_POR_CONEXION")
+
