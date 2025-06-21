@@ -139,6 +139,6 @@ if archivo is not None:
     else:
         st.error(f"❌ El archivo debe contener las columnas: {columnas_esperadas}")
 
-st.caption("Desarrollado por JC | Modelo Random Forest refinado con variable MINUTOS_POR_CONEXION")
+st.caption("Desarrollado por JC | Modelo Random Forest")
 
 
